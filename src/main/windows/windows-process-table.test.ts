@@ -415,7 +415,7 @@ describe('resolving the native reader', () => {
     expect(isWindowsProcessTableAvailable()).toBe(true)
   })
 
-  it('asks the addon for the command line but not memory, as the package path does', async () => {
+  it('asks the addon for the command line and creation time, but not memory', async () => {
     const addon = addonReturning(NATIVE)
     __setWindowsProcessTreeRequireForTests((specifier: string) => {
       if (specifier === ADDON_SPECIFIER) {
@@ -424,10 +424,12 @@ describe('resolving the native reader', () => {
       throw new Error('MODULE_NOT_FOUND')
     })
     await readWindowsProcessTableFresh()
-    // CommandLine only: a bare snapshot would silently drop the command line
-    // every agent-recognition caller matches on first, and the relay addon
-    // exposes no CreationTime bit to add.
-    expect(addon.getProcessList).toHaveBeenCalledWith(expect.any(Function), 2)
+    // Same flag set as the package path (6). Asking for CommandLine alone would
+    // strand the relay's own teardown on bare pids: every Windows descendant
+    // identity is a pid plus a creation time, so a table without one can never
+    // prove a tree exited.
+    expect(addon.getProcessList).toHaveBeenCalledWith(expect.any(Function), 6)
+    expect(isWindowsProcessStartTimeAvailable()).toBe(true)
   })
 
   it('reaches the CIM scan when neither the package nor the addon is present', async () => {

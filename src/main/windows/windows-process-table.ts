@@ -25,8 +25,11 @@ import { readWindowsProcessRowsWithCim } from './windows-process-table-cim-scan'
  *   PowerShell CIM        706 / 723  ms
  *
  * Those are the module's published figures for both extra fields together; the
- * only flag set this module asks for is `CommandLine` (+ `CreationTime`, free),
- * which sits between the two rows and has not been separately measured.
+ * only flag set this module asks for is `CommandLine | CreationTime`, which
+ * sits between the two rows and has not been separately measured.
+ * `CreationTime` is not free — it opens one more handle per process — but a
+ * PROCESS_QUERY_LIMITED_INFORMATION handle plus GetProcessTimes is far cheaper
+ * than the PEB read `CommandLine` already pays for.
  */
 
 export type WindowsProcessRow = {
@@ -85,8 +88,13 @@ type WindowsProcessTreeAddon = {
 /**
  * Mirrors the package's enum; the addon takes the raw bit field. `Memory` (1)
  * is listed for completeness and is deliberately never set — see `flags` below.
+ *
+ * Why `CreationTime` can be named here rather than probed: the bare addon is a
+ * content-hashed relay artifact, so it ships in the same immutable relay
+ * directory as the bundle reading it and can never be an older build than the
+ * code asking for the bit.
  */
-const PROCESS_DATA_FLAG = { None: 0, Memory: 1, CommandLine: 2 } as const
+const PROCESS_DATA_FLAG = { None: 0, Memory: 1, CommandLine: 2, CreationTime: 4 } as const
 
 /** Staged beside the relay bundle by build-relay; see RELAY_ARTIFACTS. */
 const RELAY_ADDON_FILENAME = './windows-process-tree.node'
@@ -302,9 +310,9 @@ export function isWindowsProcessTableAvailable(): boolean {
 
 /**
  * PID-reuse-safe ownership needs the native creation-time field, not merely a
- * process list. Older addon builds expose the table without that field; keep
- * structured ownership unavailable on those hosts instead of fabricating proof
- * from a PID.
+ * process list. An install whose pnpm patch never applied exposes the table
+ * without that field; keep structured ownership unavailable on those hosts
+ * instead of fabricating proof from a PID.
  */
 export function isWindowsProcessStartTimeAvailable(): boolean {
   const native = moduleLoader()
