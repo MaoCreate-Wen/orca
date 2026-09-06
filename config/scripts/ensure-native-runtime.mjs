@@ -2,12 +2,14 @@
 
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { release } from 'node:os'
 import { basename, dirname, resolve } from 'node:path'
+import { stageWindowsProcessTreeNodeAddonApiHeaders } from './windows-process-tree-gyp-rebuild.mjs'
 
 const require = createRequire(import.meta.url)
 const { assertNodePtyJobOwnership } = require('./node-pty-job-ownership.cjs')
+const { assertWindowsProcessTreeCreationTime } = require('./windows-process-tree-creation-time.cjs')
 const scriptPath = import.meta.filename
 const projectDir = resolve(import.meta.dirname, '../..')
 const runtime = readRuntimeArg()
@@ -253,11 +255,10 @@ function collectNativeModuleFailures() {
 
 function loadNativeModule(moduleName) {
   if (moduleName === '@vscode/windows-process-tree') {
-    // A bare require already loads the .node addon on win32, so it catches an
-    // ABI mismatch on its own. What it cannot catch is a snapshot that comes
-    // back empty -- the shape a blocked CreateToolhelp32Snapshot produces --
-    // so check the addon actually enumerates before calling the runtime healthy.
-    require(moduleName)
+    // A bare require loads the .node addon on win32, so it catches an ABI
+    // mismatch on its own. What it cannot catch is the tarball prebuilt, which
+    // loads perfectly and ignores the CreationTime flag -- so ask the binary.
+    assertWindowsProcessTreeCreationTime({ module: require(moduleName) })
     return
   }
   if (moduleName === 'windows-native-registry') {
@@ -367,7 +368,14 @@ function getWindowsBuildNumber() {
 
 function rebuildNodeRuntimeModules(moduleNames) {
   for (const moduleName of moduleNames) {
-    const moduleDir = dirname(require.resolve(`${moduleName}/package.json`))
+    let moduleDir = dirname(require.resolve(`${moduleName}/package.json`))
+    if (moduleName === '@vscode/windows-process-tree') {
+      // The patched binding.gyp includes deps/node-addon-api, which the tarball
+      // does not ship, and node-gyp must run from the physical dir -- both
+      // reasons live in windows-process-tree-gyp-rebuild.mjs.
+      stageWindowsProcessTreeNodeAddonApiHeaders(moduleDir)
+      moduleDir = realpathSync(moduleDir)
+    }
     console.warn(`[native-runtime] Rebuilding ${moduleName} with node-gyp.`)
     runPnpm(['exec', 'node-gyp', 'rebuild'], { cwd: moduleDir })
     if (moduleName === 'node-pty' && process.platform === 'win32') {
