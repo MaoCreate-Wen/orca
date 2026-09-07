@@ -174,6 +174,7 @@ export function MobileNativeChatView({
   const {
     atBottom,
     repin,
+    unpin,
     maybeFollowTail,
     onScroll,
     onScrollBeginDrag,
@@ -205,6 +206,15 @@ export function MobileNativeChatView({
     [messages, folded, streaming, pending, imagePreviewsByMessageId]
   )
 
+  // Opening the keyboard shrinks the list viewport (via `bottomPad`) without
+  // changing content height, so `onContentSizeChange` never fires — re-follow the
+  // tail on keyboard inset changes to keep the newest message above the composer.
+  const dataLenRef = useRef(data.length)
+  dataLenRef.current = data.length
+  useEffect(() => {
+    maybeFollowTail(dataLenRef.current)
+  }, [keyboardInset, maybeFollowTail])
+
   const handleSend = useCallback(
     async (text: string): Promise<boolean> => {
       const accepted = await onSend(text)
@@ -228,10 +238,16 @@ export function MobileNativeChatView({
     [onSend, onClearSendError, repin]
   )
 
-  // Align a single message's top to the top of the viewport.
-  const onScrollToMessage = useCallback((index: number) => {
-    listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: true })
-  }, [])
+  // Align a single message's top to the top of the viewport. This is an explicit
+  // jump away from the tail, so drop the pin — otherwise the next streaming chunk
+  // re-follows the tail and undoes the user's navigation.
+  const onScrollToMessage = useCallback(
+    (index: number) => {
+      unpin()
+      listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: true })
+    },
+    [unpin]
+  )
 
   // Per-turn "Thinking / Working for N / Worked for N" rows. The structured lane
   // owns them; the bridge lane keeps its three-dot indicator.

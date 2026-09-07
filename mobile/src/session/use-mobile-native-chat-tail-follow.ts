@@ -14,6 +14,9 @@ type TailFollow = {
   atBottom: boolean
   /** Re-pin to the tail (used on send). */
   repin: () => void
+  /** Drop the pin on an explicit user jump away from the tail (per-message
+   *  scroll-to-top), so a later streaming chunk can't yank them back. */
+  unpin: () => void
   /** Instant follow when pinned — the sole tail-follow, driven by content growth. */
   maybeFollowTail: (dataLength: number) => void
   onScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void
@@ -63,6 +66,11 @@ export function useMobileNativeChatTailFollow({
     setAtBottom(true)
   }, [])
 
+  const unpin = useCallback(() => {
+    pinnedRef.current = false
+    setAtBottom(false)
+  }, [])
+
   const maybeFollowTail = useCallback(
     (dataLength: number) => {
       if (dataLength <= 0 || !pinnedRef.current || followRafRef.current !== null) {
@@ -93,8 +101,17 @@ export function useMobileNativeChatTailFollow({
         pinnedRef.current = pinned
         setAtBottom(pinned)
       }
-      // Near the top — page in older history (fires regardless of drag state).
-      if (contentOffset.y < 60 && hasMore && !loadingEarlier) {
+      // Near the top — page in older history, but only on genuine user motion
+      // over scrollable content. A programmatic scrollToEnd on a short (sub-
+      // viewport) conversation emits onScroll at offset 0, which would otherwise
+      // auto-request history the user never asked for.
+      if (
+        (userDraggingRef.current || momentumRef.current) &&
+        contentSize.height > layoutMeasurement.height &&
+        contentOffset.y < 60 &&
+        hasMore &&
+        !loadingEarlier
+      ) {
         onLoadEarlier?.()
       }
     },
@@ -118,6 +135,7 @@ export function useMobileNativeChatTailFollow({
   return {
     atBottom,
     repin,
+    unpin,
     maybeFollowTail,
     onScroll,
     onScrollBeginDrag,
