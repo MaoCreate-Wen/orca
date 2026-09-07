@@ -23,11 +23,34 @@ const COMMON_COMMANDS: readonly SlashCommandSuggestion[] = [
 ]
 
 const CLAUDE_COMMANDS: readonly SlashCommandSuggestion[] = [
+  { name: 'add-dir', description: 'Add a working directory' },
+  { name: 'agents', description: 'Manage agent configurations' },
+  { name: 'bug', description: 'Report a bug to Anthropic' },
   { name: 'clear', description: 'Clear conversation history' },
   { name: 'compact', description: 'Summarize and compact the conversation' },
+  { name: 'config', description: 'Open the config panel' },
+  { name: 'cost', description: 'Show token usage and cost' },
+  { name: 'doctor', description: 'Diagnose and check the installation' },
+  { name: 'exit', description: 'Exit the session' },
+  { name: 'export', description: 'Export the conversation' },
+  { name: 'help', description: 'Show available commands' },
+  { name: 'hooks', description: 'Manage hook configurations' },
   { name: 'init', description: 'Initialize a CLAUDE.md' },
+  { name: 'login', description: 'Log in with your account' },
+  { name: 'logout', description: 'Log out of your account' },
+  { name: 'mcp', description: 'Manage MCP servers' },
+  { name: 'memory', description: 'Edit memory files' },
+  // Model selection is surfaced by the composer's own session-option picker on
+  // mobile, so /model is intentionally left out of the Claude slash catalog.
+  { name: 'permissions', description: 'Manage tool permissions' },
+  { name: 'pr-comments', description: 'Get comments from a GitHub PR' },
+  { name: 'release-notes', description: 'View release notes' },
+  { name: 'resume', description: 'Resume a previous conversation' },
   { name: 'review', description: 'Review the current changes' },
-  { name: 'help', description: 'Show available commands' }
+  { name: 'rewind', description: 'Rewind the conversation' },
+  { name: 'status', description: 'Show session status' },
+  { name: 'terminal-setup', description: 'Configure terminal key bindings' },
+  { name: 'vim', description: 'Toggle Vim editing mode' }
 ]
 
 const CODEX_COMMANDS: readonly SlashCommandSuggestion[] = [

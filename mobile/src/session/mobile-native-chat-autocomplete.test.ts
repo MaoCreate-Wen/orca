@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import type { DiscoveredSkill } from '../../../src/shared/skills'
 import {
   applyAutocomplete,
   detectAutocompleteTrigger,
+  rankSkillSuggestions,
   rankSlashCommandSuggestions,
   rankSuggestions
 } from './mobile-native-chat-autocomplete'
@@ -89,5 +91,35 @@ describe('rankSlashCommandSuggestions', () => {
   it('is case-insensitive and drops non-matches', () => {
     expect(rankSlashCommandSuggestions(commands, 'CLE').map((c) => c.name)).toEqual(['clear'])
     expect(rankSlashCommandSuggestions(commands, 'zzz')).toEqual([])
+  })
+})
+
+describe('rankSkillSuggestions', () => {
+  const mkSkill = (name: string): DiscoveredSkill =>
+    ({ id: name, name, description: null }) as unknown as DiscoveredSkill
+  const skills = [mkSkill('reviewer'), mkSkill('release-notes'), mkSkill('deployer')]
+
+  it('lists all skills for a bare query', () => {
+    expect(rankSkillSuggestions(skills, '').map((s) => s.name)).toEqual([
+      'reviewer',
+      'release-notes',
+      'deployer'
+    ])
+  })
+
+  it('ranks prefix matches before substring matches, case-insensitively', () => {
+    expect(rankSkillSuggestions(skills, 're').map((s) => s.name)).toEqual([
+      'reviewer',
+      'release-notes'
+    ])
+    // "e" is a substring of every name, in catalog order.
+    expect(rankSkillSuggestions(skills, 'RE').map((s) => s.name)).toEqual([
+      'reviewer',
+      'release-notes'
+    ])
+  })
+
+  it('drops non-matches', () => {
+    expect(rankSkillSuggestions(skills, 'zzz')).toEqual([])
   })
 })

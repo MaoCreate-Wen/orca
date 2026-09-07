@@ -26,6 +26,7 @@ import { MobileNativeChatTurnStatus } from './MobileNativeChatTurnStatus'
 import { MobileAgentWorkingIndicator } from './MobileAgentWorkingIndicator'
 import type { PendingNativeChatImage } from './mobile-native-chat-image-attachment'
 import { MobileNativeChatComposer } from './MobileNativeChatComposer'
+import type { MobileNativeChatSkillPicker } from './use-mobile-native-chat-skills'
 import { MobileNativeChatPromptCard } from './MobileNativeChatPromptCard'
 import type { MobileChatPermission } from './mobile-native-chat-permission'
 import type { MobileChatQuestion } from './mobile-native-chat-question'
@@ -95,6 +96,9 @@ type Props = {
   onClearSendError?: () => void
   filePaths?: string[]
   onNeedFiles?: (query: string) => void
+  /** Skill discovery for the slash picker; grouped-slash agents (Claude) list
+   *  their skills alongside commands. Null on surfaces without skill support. */
+  skillPicker?: MobileNativeChatSkillPicker | null
   /** Model/session-option pickers for the composer action row (desktop parity). */
   sessionOptions?: MobileNativeChatSessionOptionPickersProps | null
   /** A pending agent question/permission detected from live status, shown as a
@@ -157,6 +161,7 @@ export function MobileNativeChatView({
   onClearSendError,
   filePaths,
   onNeedFiles,
+  skillPicker,
   sessionOptions,
   ask,
   askKey,
@@ -463,6 +468,7 @@ export function MobileNativeChatView({
         }
         filePaths={filePaths}
         onNeedFiles={onNeedFiles}
+        skillPicker={skillPicker}
       />
     </View>
   )

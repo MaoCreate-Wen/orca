@@ -11,13 +11,18 @@ import {
 } from 'react-native'
 import { ArrowUp, ImagePlus, Mic, Square, X } from 'lucide-react-native'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
-import { getVerifiedNativeChatCommands } from '../../../src/shared/native-chat-agent-profiles'
+import {
+  getNativeChatAgentProfile,
+  getVerifiedNativeChatCommands
+} from '../../../src/shared/native-chat-agent-profiles'
 import {
   applyAutocomplete,
   detectAutocompleteTrigger,
+  rankSkillSuggestions,
   rankSlashCommandSuggestions,
   rankSuggestions
 } from './mobile-native-chat-autocomplete'
+import type { MobileNativeChatSkillPicker } from './use-mobile-native-chat-skills'
 import {
   composerSuggestionInsertText,
   MobileNativeChatComposerSuggestions,
@@ -64,6 +69,9 @@ type Props = {
   placeholder?: string
   filePaths?: string[]
   onNeedFiles?: (query: string) => void
+  /** Discovered skills for the slash picker; grouped-slash agents (Claude) list
+   *  them alongside commands. Null on surfaces without skill support. */
+  skillPicker?: MobileNativeChatSkillPicker | null
 }
 
 export function MobileNativeChatComposer({
@@ -87,7 +95,8 @@ export function MobileNativeChatComposer({
   disabled = false,
   placeholder = 'Message, @files, /commands',
   filePaths = NO_FILE_PATHS,
-  onNeedFiles
+  onNeedFiles,
+  skillPicker
 }: Props): React.JSX.Element {
   const [cursor, setCursor] = useState(0)
   // Transiently drives the native caret after a mid-text autocomplete insert,
@@ -128,22 +137,37 @@ export function MobileNativeChatComposer({
       // Why: Codex's catalog is 45 commands and this list is a plain ScrollView
       // (~5 rows visible), so an uncapped `/` would mount every row and
       // re-reconcile them on each streaming tick right above the transcript.
-      return rankSlashCommandSuggestions(commands, trigger.query, 12).map((command) => ({
-        kind: 'command' as const,
-        command
+      const commandRows = rankSlashCommandSuggestions(commands, trigger.query, 12).map(
+        (command) => ({ kind: 'command' as const, command })
+      )
+      // Grouped-slash agents (Claude) invoke skills as `/name`, so list the
+      // discovered skills under `/` right after the commands.
+      const groupedSlash = agent ? getNativeChatAgentProfile(agent)?.groupedSlash === true : false
+      if (!groupedSlash || !skillPicker) {
+        return commandRows
+      }
+      const skillRows = rankSkillSuggestions(skillPicker.skills, trigger.query, 12).map((skill) => ({
+        kind: 'skill' as const,
+        skill
       }))
+      return [...commandRows, ...skillRows]
     }
     return rankSuggestions(filePaths, trigger.query).map((path) => ({
       kind: 'file' as const,
       path
     }))
-  }, [trigger, filePaths, agent])
+  }, [trigger, filePaths, agent, skillPicker])
 
   useEffect(() => {
     if (trigger?.kind === 'file') {
       onNeedFiles?.(trigger.query)
     }
-  }, [onNeedFiles, trigger?.kind, trigger?.query])
+    // A slash picker for a grouped-slash agent lists skills too; kick off the
+    // one-shot debounced scan the first time the picker opens.
+    if (trigger?.kind === 'slash' && agent && getNativeChatAgentProfile(agent)?.groupedSlash) {
+      skillPicker?.onNeed()
+    }
+  }, [onNeedFiles, trigger?.kind, trigger?.query, agent, skillPicker])
 
   useEffect(() => {
     mountedRef.current = true

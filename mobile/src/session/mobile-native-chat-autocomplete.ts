@@ -3,6 +3,7 @@
 // unit-testable and the composer stays a thin view over it.
 
 import type { SlashCommandSuggestion } from '../../../src/shared/native-chat-slash-commands'
+import type { DiscoveredSkill } from '../../../src/shared/skills'
 
 export type AutocompleteKind = 'file' | 'slash'
 
@@ -114,6 +115,34 @@ export function rankSlashCommandSuggestions(
       prefix.push(command)
     } else if (lower.includes(q)) {
       substring.push(command)
+    }
+    if (prefix.length >= limit) {
+      break
+    }
+  }
+  return [...prefix, ...substring].slice(0, limit)
+}
+
+/** Rank discovered skills for the slash picker: prefix matches on the skill name
+ *  first, then substring, capped. A bare `/` lists the whole set (after the
+ *  commands the composer places above them). */
+export function rankSkillSuggestions(
+  skills: readonly DiscoveredSkill[],
+  query: string,
+  limit = 50
+): DiscoveredSkill[] {
+  const q = query.toLowerCase()
+  if (q.length === 0) {
+    return skills.slice(0, limit)
+  }
+  const prefix: DiscoveredSkill[] = []
+  const substring: DiscoveredSkill[] = []
+  for (const skill of skills) {
+    const lower = skill.name.toLowerCase()
+    if (lower.startsWith(q)) {
+      prefix.push(skill)
+    } else if (lower.includes(q)) {
+      substring.push(skill)
     }
     if (prefix.length >= limit) {
       break

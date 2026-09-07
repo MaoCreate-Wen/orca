@@ -8,6 +8,7 @@ import { useMobileNativeChatAskDismiss } from './use-mobile-native-chat-ask-dism
 import { useMobileNativeChatCancelAsk } from './use-mobile-native-chat-cancel-ask'
 import { useMobileNativeChatDrafts } from './use-mobile-native-chat-drafts'
 import { useMobileNativeChatFileSearch } from './use-mobile-native-chat-file-search'
+import { useMobileNativeChatSkills } from './use-mobile-native-chat-skills'
 import { useMobileNativeChatMessageSend } from './use-mobile-native-chat-message-send'
 import { mobileNativeChatStreamPreview } from './mobile-native-chat-streaming-gate'
 import { useMobileNativeChatSessionOptionController } from './use-mobile-native-chat-session-option-controller'
@@ -216,6 +217,12 @@ export function useMobileNativeChatController(args: {
     worktreeId
   })
 
+  const nativeChatSkillPicker = useMobileNativeChatSkills({
+    client,
+    worktreeId,
+    agent: activeChatResolution?.agent ?? null
+  })
+
   // Why: the send seam reports outgoing catalog commands to session-option
   // tracking, but the options hook needs the seam's dispatcher — a ref breaks
   // the cycle without re-creating the send callbacks per snapshot.
@@ -315,6 +322,7 @@ export function useMobileNativeChatController(args: {
     handleNativeChatStop: activeChatStructured ? structuredNativeChat.cancel : handleNativeChatStop,
     nativeChatFilePaths,
     loadNativeChatFiles,
+    nativeChatSkillPicker,
     handleNativeChatQuestionAnswer: activeChatStructured
       ? structuredNativeChat.respondQuestion
       : legacyHandleNativeChatQuestionAnswer,

@@ -10,10 +10,11 @@ describe('classifyMobileNativeChatSend', () => {
   })
 
   it('treats slash tokens outside the agent catalog as unknown, never chat', () => {
-    // `/model` is not a verified Claude command — it still dispatches to the
-    // TUI, so it must not get a chat bubble, but it can't claim a command ran.
+    // `/model` is surfaced by the composer's own session-option picker, not the
+    // Claude slash catalog, and `/diff` is Codex-only — both still dispatch to
+    // the TUI, so they must not get a chat bubble, but can't claim a command ran.
     expect(classifyMobileNativeChatSend('claude', '/model sonnet')).toBe('unknown-token')
-    expect(classifyMobileNativeChatSend('claude', '/cost')).toBe('unknown-token')
+    expect(classifyMobileNativeChatSend('claude', '/notacommand')).toBe('unknown-token')
     expect(classifyMobileNativeChatSend('claude', '/diff')).toBe('unknown-token')
   })
 
