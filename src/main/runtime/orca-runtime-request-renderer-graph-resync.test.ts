@@ -148,6 +148,13 @@ describe('requestRendererGraphResync gate + round trip', () => {
         'wt-1'
       )
     ).toBe(false)
+    // The force-accept marker must not linger past a failed resync, or an unrelated
+    // later publication would wrongly bypass the same-version dedup.
+    expect(
+      (
+        runtime as unknown as { forceAcceptNextRendererPublish: Set<string> }
+      ).forceAcceptNextRendererPublish.has('wt-1')
+    ).toBe(false)
 
     const p2 = rrgr('wt-1')
     expect(send).toHaveBeenCalledTimes(2)

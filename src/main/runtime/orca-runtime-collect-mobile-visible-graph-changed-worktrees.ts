@@ -181,6 +181,12 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
       }
     } finally {
       this.resyncInFlightMobileWorktrees.delete(worktreeId)
+      // Why: on success the forced publish already consumed this flag in
+      // syncMobileSessionTabs (which runs before the reply resolves), so this is a
+      // no-op; on a send failure / timeout / ok:false no publish consumed it, and a
+      // lingering flag would wrongly bypass the same-version/stale-frame dedup for an
+      // unrelated later publication — clear it so only the requested resync benefits.
+      this.forceAcceptNextRendererPublish.delete(worktreeId)
     }
   }
 
