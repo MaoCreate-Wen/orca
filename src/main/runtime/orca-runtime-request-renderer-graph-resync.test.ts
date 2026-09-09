@@ -11,6 +11,8 @@ vi.mock('electron', () => ({
 
 import { OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees } from './orca-runtime-collect-mobile-visible-graph-changed-worktrees'
 
+type ReplyHandler = (event: unknown, reply: { requestId: string }) => void
+
 // Why: the runtime class is a deep mechanical split; exercise the gate + round
 // trip on a bare prototype instance with only the fields the method touches,
 // avoiding the full constructor chain.
@@ -27,6 +29,7 @@ function makeRuntime(overrides: Record<string, unknown> = {}): {
     forceResyncedMobileWorktrees: new Set<string>(),
     resyncInFlightMobileWorktrees: new Set<string>(),
     resyncAttemptsByMobileWorktree: new Map<string, number>(),
+    forceAcceptNextRendererPublish: new Set<string>(),
     acceptedRendererMobileSnapshotByWorktree: new Map<string, unknown>(),
     getAvailableAuthoritativeWindow: () => win,
     ...overrides
@@ -42,9 +45,9 @@ describe('requestRendererGraphResync gate + round trip', () => {
   })
 
   it('sends one resync and resolves when the matching reply lands, marking the worktree', async () => {
-    let replyHandler: ((event: unknown, reply: { requestId: string }) => void) | null = null
-    ipcMainOnMock.mockImplementation((_ch: string, h: typeof replyHandler) => {
-      replyHandler = h
+    const handlerRef: { current: ReplyHandler | null } = { current: null }
+    ipcMainOnMock.mockImplementation((..._args: unknown[]) => {
+      handlerRef.current = _args[1] as ReplyHandler
     })
     const { runtime, send } = makeRuntime()
 
@@ -56,13 +59,19 @@ describe('requestRendererGraphResync gate + round trip', () => {
     const [channel, payload] = send.mock.calls[0] as [string, { requestId: string; worktreeId: string }]
     expect(channel).toBe('browser:requestGraphResync')
     expect(payload.worktreeId).toBe('wt-1')
+    // The worktree is flagged so main's same-version dedup accepts the resend.
+    expect(
+      (
+        runtime as unknown as { forceAcceptNextRendererPublish: Set<string> }
+      ).forceAcceptNextRendererPublish.has('wt-1')
+    ).toBe(true)
 
     // A non-matching requestId is ignored; only the correct one resolves.
     const senderWin = (
       runtime as unknown as { getAvailableAuthoritativeWindow: () => { webContents: unknown } }
     ).getAvailableAuthoritativeWindow()
-    replyHandler?.({ sender: senderWin.webContents }, { requestId: 'nope' })
-    replyHandler?.({ sender: senderWin.webContents }, { requestId: payload.requestId })
+    handlerRef.current?.({ sender: senderWin.webContents }, { requestId: 'nope' })
+    handlerRef.current?.({ sender: senderWin.webContents }, { requestId: payload.requestId })
 
     await pending
     expect(ipcMainRemoveMock).toHaveBeenCalled()
@@ -73,15 +82,27 @@ describe('requestRendererGraphResync gate + round trip', () => {
     ).toBe(true)
   })
 
-  it('skips the round trip when main already holds the accepted snapshot', async () => {
+  it('still resyncs when main already holds an accepted snapshot (it may lack browser pages)', async () => {
+    // Regression: gating on the accepted snapshot skipped the resync exactly when
+    // the desktop's renderer-owned browser pages were missing (accepted snapshot
+    // carried terminals only). The resync must run regardless of that snapshot.
+    const handlerRef: { current: ReplyHandler | null } = { current: null }
+    ipcMainOnMock.mockImplementation((..._args: unknown[]) => {
+      handlerRef.current = _args[1] as ReplyHandler
+    })
     const { runtime, send } = makeRuntime({
       acceptedRendererMobileSnapshotByWorktree: new Map([['wt-1', {}]])
     })
-    await (
+    const pending = (
       runtime as unknown as { requestRendererGraphResync: (w: string) => Promise<void> }
     ).requestRendererGraphResync('wt-1')
-    expect(send).not.toHaveBeenCalled()
-    expect(ipcMainOnMock).not.toHaveBeenCalled()
+    expect(send).toHaveBeenCalledTimes(1)
+    const payload = send.mock.calls[0][1] as { requestId: string }
+    const winContents = (
+      runtime as unknown as { getAvailableAuthoritativeWindow: () => { webContents: unknown } }
+    ).getAvailableAuthoritativeWindow().webContents
+    handlerRef.current?.({ sender: winContents }, { requestId: payload.requestId })
+    await pending
   })
 
   it('resyncs a worktree at most once per session', async () => {

@@ -107,15 +107,13 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
     // Why: listMobileSessionTabs backs session.tabs.list/subscribe/unsubscribe and
     // the close/mutation RPCs, and the mobile client polls list — so resyncing
     // unconditionally would force a full renderer republish + round trip (up to the
-    // 10s wait) on every one of those. The missing-pages gap only exists until the
-    // renderer has published this worktree to main once, so resync at most once per
-    // worktree per session, and skip entirely when main already holds the renderer's
-    // accepted snapshot for it (the pages are already present).
+    // 10s wait) on every one of those. The missing-pages gap only exists until a
+    // forced resync has succeeded, so resync at most once per worktree per session.
+    // NB: do NOT gate on acceptedRendererMobileSnapshotByWorktree — main can hold an
+    // accepted snapshot that carries terminals but no browser pages (the renderer
+    // published the worktree before/without them), so that gate skips the resync
+    // exactly when the desktop's pages are missing (verified on-device).
     if (this.forceResyncedMobileWorktrees.has(worktreeId)) {
-      return
-    }
-    if (this.acceptedRendererMobileSnapshotByWorktree.has(worktreeId)) {
-      this.forceResyncedMobileWorktrees.add(worktreeId)
       return
     }
     // Why: block a concurrent list/subscribe/poll for the same worktree from
@@ -142,6 +140,11 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
       worktreeId,
       (this.resyncAttemptsByMobileWorktree.get(worktreeId) ?? 0) + 1
     )
+    // Why: the renderer re-sends this worktree at its current (possibly unchanged)
+    // snapshot version, so main's same-version dedup would drop the resend even
+    // though its content differs (e.g. desktop browser pages now present). Flag the
+    // worktree so the next publication bypasses that dedup.
+    this.forceAcceptNextRendererPublish.add(worktreeId)
     const requestId = randomUUID()
     try {
       const replied = await new Promise<boolean>((resolve) => {
