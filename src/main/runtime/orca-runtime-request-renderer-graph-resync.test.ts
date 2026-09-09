@@ -26,6 +26,7 @@ function makeRuntime(overrides: Record<string, unknown> = {}): {
   Object.assign(runtime, {
     forceResyncedMobileWorktrees: new Set<string>(),
     resyncInFlightMobileWorktrees: new Set<string>(),
+    resyncAttemptsByMobileWorktree: new Map<string, number>(),
     acceptedRendererMobileSnapshotByWorktree: new Map<string, unknown>(),
     getAvailableAuthoritativeWindow: () => win,
     ...overrides
@@ -131,6 +132,28 @@ describe('requestRendererGraphResync gate + round trip', () => {
     expect(send).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(10_000)
     await p2
+    vi.useRealTimers()
+  })
+
+  it('stops retrying after the attempt cap so a dead renderer is not polled forever', async () => {
+    vi.useFakeTimers()
+    ipcMainOnMock.mockImplementation(() => {}) // never replies
+    const { runtime, send } = makeRuntime()
+    const rrgr = (
+      runtime as unknown as { requestRendererGraphResync: (w: string) => Promise<void> }
+    ).requestRendererGraphResync.bind(runtime)
+
+    // Three attempts each time out.
+    for (let i = 0; i < 3; i++) {
+      const p = rrgr('wt-1')
+      await vi.advanceTimersByTimeAsync(10_000)
+      await p
+    }
+    expect(send).toHaveBeenCalledTimes(3)
+
+    // Fourth call is capped: no further round trip.
+    await rrgr('wt-1')
+    expect(send).toHaveBeenCalledTimes(3)
     vi.useRealTimers()
   })
 

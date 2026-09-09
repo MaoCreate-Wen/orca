@@ -7,6 +7,10 @@ import { parseExecutionHostId } from '../../shared/execution-host'
 import { ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 
+// Give up forcing a resync for a worktree after this many no-reply attempts, so a
+// renderer that never answers can't add a 10s round trip to every subsequent list.
+const MAX_MOBILE_RESYNC_ATTEMPTS = 3
+
 export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends OrcaRuntimeWithSyncWindowGraph {
   // Why: toMobileSessionTabsResult resolves handles/titles from this.tabs and
   // this.leaves, so any tab/leaf delta a graph sync installs can flip the
@@ -82,6 +86,9 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
   protected forceResyncedMobileWorktrees = new Set<string>()
   // Worktrees with a resync round trip in flight — blocks a concurrent duplicate.
   protected resyncInFlightMobileWorktrees = new Set<string>()
+  // Failed resync attempts per worktree; caps retries so a never-replying renderer
+  // can't cost a 10s round trip on every list/close/mutation forever.
+  protected resyncAttemptsByMobileWorktree = new Map<string, number>()
 
   // Why: the initial-list reconcile above only recovers client-hosted browser
   // pages (page registry) — it cannot see renderer-owned tabs the desktop opened
@@ -119,11 +126,22 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
     if (this.resyncInFlightMobileWorktrees.has(worktreeId)) {
       return
     }
+    // Why: with retry-on-timeout, a renderer that never replies would otherwise
+    // start a fresh 10s round trip on every list/subscribe/close/mutation. Cap the
+    // no-reply attempts so we stop after a few and fall back to the create-a-tab
+    // path, instead of paying the timeout repeatedly.
+    if ((this.resyncAttemptsByMobileWorktree.get(worktreeId) ?? 0) >= MAX_MOBILE_RESYNC_ATTEMPTS) {
+      return
+    }
     const win = this.getAvailableAuthoritativeWindow()
     if (!win || win.isDestroyed()) {
       return
     }
     this.resyncInFlightMobileWorktrees.add(worktreeId)
+    this.resyncAttemptsByMobileWorktree.set(
+      worktreeId,
+      (this.resyncAttemptsByMobileWorktree.get(worktreeId) ?? 0) + 1
+    )
     const requestId = randomUUID()
     try {
       const replied = await new Promise<boolean>((resolve) => {
@@ -154,6 +172,7 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
       })
       if (replied) {
         this.forceResyncedMobileWorktrees.add(worktreeId)
+        this.resyncAttemptsByMobileWorktree.delete(worktreeId)
       }
     } finally {
       this.resyncInFlightMobileWorktrees.delete(worktreeId)
