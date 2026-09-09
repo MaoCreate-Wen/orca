@@ -211,6 +211,23 @@ export function setTrailingGraphSyncScheduler(scheduler: () => void): void {
   scheduleTrailingGraphSync = scheduler
 }
 
+// Why: the main process asks for this when the phone first lists a worktree
+// whose renderer-owned browser tabs never reached it (the worktree was
+// "unchanged" since the last publish, so partitionMobileSessionPublication put
+// it in unchangedWorktrees and it was never sent). Dropping the published
+// fingerprint for the worktree forces the very next publication to classify it
+// as changed and re-send its full snapshot — including the renderer-owned
+// browser tabs — with no tab creation and no change to desktop focus/state. We
+// run one sync inline and await it so the caller can reply only after the graph
+// (and thus main's mobileSessionTabsByWorktree) has been updated. The
+// snapshot-fingerprint delete happens synchronously right before syncRuntimeGraph
+// builds and partitions the publication (no await in between), so a concurrent
+// coalesced sync cannot re-mark the worktree unchanged before this one sends.
+export async function republishMobileSessionWorktree(worktreeId: string): Promise<void> {
+  graphState.publishedMobileSessionSnapshotByWorktree.delete(worktreeId)
+  await syncRuntimeGraph()
+}
+
 function partitionMobileSessionPublication(snapshots: RuntimeMobileSessionTabsSnapshot[]): {
   changed: RuntimeMobileSessionTabsSnapshot[]
   unchangedWorktrees: string[]

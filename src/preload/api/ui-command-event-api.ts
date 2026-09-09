@@ -88,6 +88,10 @@ export type UiCommandEventApi = {
     }) => void
   ) => () => void
   replyTabCreate: (reply: { requestId: string; browserPageId?: string; error?: string }) => void
+  onRequestGraphResync: (
+    callback: (data: { requestId: string; worktreeId: string }) => void
+  ) => () => void
+  replyGraphResync: (reply: { requestId: string }) => void
   onRequestTabSetProfile: (
     callback: (data: {
       requestId: string

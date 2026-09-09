@@ -4,6 +4,8 @@ import type { RuntimeMobileSessionTabsResult, RuntimeSyncedTab } from '../../sha
 import type { RuntimeLeafRecord } from './runtime-terminal-state-records'
 import type { PtyControllerInventory } from './runtime-pty-controller-contract'
 import { parseExecutionHostId } from '../../shared/execution-host'
+import { ipcMain } from 'electron'
+import { randomUUID } from 'node:crypto'
 
 export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends OrcaRuntimeWithSyncWindowGraph {
   // Why: toMobileSessionTabsResult resolves handles/titles from this.tabs and
@@ -59,6 +61,8 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
       this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(explicitWorktreeId)
       await this.refreshMobileSessionPtyRecords(explicitWorktreeId)
       this.restoreLivePairedRendererSessionOwnedMobileTerminals(explicitWorktreeId)
+      this.reconcileMobileSessionBrowserTabsOnInitialList(explicitWorktreeId)
+      await this.requestRendererGraphResync(explicitWorktreeId)
       return this.getMobileSessionTabsForWorktree(explicitWorktreeId, clientNavigationId)
     }
     const worktree = await this.resolveWorktreeSelector(worktreeSelector)
@@ -69,7 +73,72 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktree.id)
     await this.refreshMobileSessionPtyRecords()
     this.restoreLivePairedRendererSessionOwnedMobileTerminals(worktree.id)
+    this.reconcileMobileSessionBrowserTabsOnInitialList(worktree.id)
+    await this.requestRendererGraphResync(worktree.id)
     return this.getMobileSessionTabsForWorktree(worktree.id, clientNavigationId)
+  }
+
+  // Why: the initial-list reconcile above only recovers client-hosted browser
+  // pages (page registry) — it cannot see renderer-owned tabs the desktop opened
+  // under an authoritative window, because the renderer only publishes a
+  // worktree's snapshot when it changed. A worktree the phone enters for the
+  // first time hasn't "changed" since the last sync, so its renderer-owned
+  // browser tabs never reach mobileSessionTabsByWorktree and the phone shows
+  // none. Ask the renderer to force a full republish of just this worktree
+  // (fingerprint reset → treated as changed) and wait for its round-trip reply;
+  // by the time it lands the renderer's syncWindowGraph has already committed
+  // the worktree's full snapshot into the stored map, so the caller reads the
+  // desktop's already-open tabs on the very first list. Headless / no-window
+  // runtimes have no renderer to ask (getAvailableAuthoritativeWindow → null) so
+  // this no-ops; a timeout or send failure is swallowed so the list never fails.
+  protected async requestRendererGraphResync(worktreeId: string): Promise<void> {
+    const win = this.getAvailableAuthoritativeWindow()
+    if (!win || win.isDestroyed()) {
+      return
+    }
+    const requestId = randomUUID()
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        ipcMain.removeListener('browser:requestGraphResyncReply', handler)
+        resolve()
+      }, 10_000)
+
+      const handler = (
+        event: Electron.IpcMainEvent,
+        reply: { requestId: string }
+      ): void => {
+        if (event.sender !== win.webContents || reply.requestId !== requestId) {
+          return
+        }
+        clearTimeout(timer)
+        ipcMain.removeListener('browser:requestGraphResyncReply', handler)
+        resolve()
+      }
+      ipcMain.on('browser:requestGraphResyncReply', handler)
+      try {
+        win.webContents.send('browser:requestGraphResync', { requestId, worktreeId })
+      } catch {
+        clearTimeout(timer)
+        ipcMain.removeListener('browser:requestGraphResyncReply', handler)
+        resolve()
+      }
+    })
+  }
+
+  // Why: the initial list path only hydrates terminals; browser reconcile is
+  // skipped for attached-window (renderer-owned) worktrees, so the stored
+  // snapshot may lack pages the desktop already has open — the phone then shows
+  // none until a fresh tab is created and the renderer republishes. Pull the
+  // live renderer-owned pages from the page registry (via
+  // buildHeadlessMobileSessionBrowserTabs → listPages) into the stored snapshot
+  // now, so the very first list carries them. No-op when the snapshot is absent
+  // or already matches (reconcile bails via headlessBrowserTabsUnchanged).
+  protected reconcileMobileSessionBrowserTabsOnInitialList(worktreeId: string): void {
+    const existing = this.mobileSessionTabsByWorktree.get(worktreeId)
+    if (!existing) {
+      return
+    }
+    this.reconcileHeadlessMobileSessionBrowserTabs(worktreeId, existing)
   }
 
   async listAllMobileSessionTabs(
