@@ -50,15 +50,29 @@ describe('browser graph-resync bridge', () => {
     })
   })
 
-  it('republishes the worktree then replies once the graph is pushed', async () => {
+  it('replies only after the republish settles, so main never reads a stale snapshot', async () => {
+    // Hold the republish open: main must not be told the graph is ready until
+    // syncRuntimeGraph has actually committed the worktree's snapshot.
+    let resolveRepublish = (): void => {}
+    mocks.republishMobileSessionWorktree.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveRepublish = resolve
+      })
+    )
     registerBrowserRequestIpcBridge([], () => false)
 
     mocks.resyncListener?.({ requestId: 'resync-1', worktreeId: 'wt-1' })
 
+    expect(mocks.republishMobileSessionWorktree).toHaveBeenCalledExactlyOnceWith('wt-1')
+    // No reply while the republish is still in flight.
+    await Promise.resolve()
+    expect(mocks.replyGraphResync).not.toHaveBeenCalled()
+
+    resolveRepublish()
+
     await vi.waitFor(() =>
       expect(mocks.replyGraphResync).toHaveBeenCalledExactlyOnceWith({ requestId: 'resync-1' })
     )
-    expect(mocks.republishMobileSessionWorktree).toHaveBeenCalledExactlyOnceWith('wt-1')
   })
 
   it('still replies when the republish fails so the awaiting list never hangs', async () => {

@@ -78,6 +78,9 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
     return this.getMobileSessionTabsForWorktree(worktree.id, clientNavigationId)
   }
 
+  // Force-resync fires at most once per worktree per session (see gate below).
+  protected forceResyncedMobileWorktrees = new Set<string>()
+
   // Why: the initial-list reconcile above only recovers client-hosted browser
   // pages (page registry) — it cannot see renderer-owned tabs the desktop opened
   // under an authoritative window, because the renderer only publishes a
@@ -92,10 +95,27 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
   // runtimes have no renderer to ask (getAvailableAuthoritativeWindow → null) so
   // this no-ops; a timeout or send failure is swallowed so the list never fails.
   protected async requestRendererGraphResync(worktreeId: string): Promise<void> {
+    // Why: listMobileSessionTabs backs session.tabs.list/subscribe/unsubscribe and
+    // the close/mutation RPCs, and the mobile client polls list — so resyncing
+    // unconditionally would force a full renderer republish + round trip (up to the
+    // 10s wait) on every one of those. The missing-pages gap only exists until the
+    // renderer has published this worktree to main once, so resync at most once per
+    // worktree per session, and skip entirely when main already holds the renderer's
+    // accepted snapshot for it (the pages are already present).
+    if (this.forceResyncedMobileWorktrees.has(worktreeId)) {
+      return
+    }
+    if (this.acceptedRendererMobileSnapshotByWorktree.has(worktreeId)) {
+      this.forceResyncedMobileWorktrees.add(worktreeId)
+      return
+    }
     const win = this.getAvailableAuthoritativeWindow()
     if (!win || win.isDestroyed()) {
       return
     }
+    // Mark before the round trip so a concurrent list/subscribe/poll for the same
+    // worktree doesn't launch a second republish while this one is in flight.
+    this.forceResyncedMobileWorktrees.add(worktreeId)
     const requestId = randomUUID()
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
