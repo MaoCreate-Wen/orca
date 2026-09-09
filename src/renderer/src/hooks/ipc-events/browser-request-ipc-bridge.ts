@@ -73,16 +73,19 @@ export function registerBrowserRequestIpcBridge(
   unsubs.push(
     window.api.ui.onRequestGraphResync((data) => {
       // Why: main asks for a full republish of one worktree so the phone's first
-      // list carries the desktop's already-open renderer-owned browser tabs.
-      // Force the worktree's snapshot to re-send, then reply only after it has
-      // been pushed to main — even on failure — so the awaiting list never hangs.
+      // list carries the desktop's already-open renderer-owned browser tabs. Force
+      // the worktree's snapshot to re-send and report whether it actually reached
+      // main via `ok`, so main marks the resync done only on success and keeps
+      // retrying a failed publish. Always reply (even on failure) so the awaiting
+      // list never hangs.
       void (async () => {
+        let ok = false
         try {
-          await republishMobileSessionWorktree(data.worktreeId)
+          ok = await republishMobileSessionWorktree(data.worktreeId)
         } catch (err) {
           console.error('[runtime] Failed to resync renderer graph for worktree', err)
         } finally {
-          window.api.ui.replyGraphResync({ requestId: data.requestId })
+          window.api.ui.replyGraphResync({ requestId: data.requestId, ok })
         }
       })()
     })

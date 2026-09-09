@@ -11,7 +11,7 @@ vi.mock('electron', () => ({
 
 import { OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees } from './orca-runtime-collect-mobile-visible-graph-changed-worktrees'
 
-type ReplyHandler = (event: unknown, reply: { requestId: string }) => void
+type ReplyHandler = (event: unknown, reply: { requestId: string; ok?: boolean }) => void
 
 // Why: the runtime class is a deep mechanical split; exercise the gate + round
 // trip on a bare prototype instance with only the fields the method touches,
@@ -70,8 +70,8 @@ describe('requestRendererGraphResync gate + round trip', () => {
     const senderWin = (
       runtime as unknown as { getAvailableAuthoritativeWindow: () => { webContents: unknown } }
     ).getAvailableAuthoritativeWindow()
-    handlerRef.current?.({ sender: senderWin.webContents }, { requestId: 'nope' })
-    handlerRef.current?.({ sender: senderWin.webContents }, { requestId: payload.requestId })
+    handlerRef.current?.({ sender: senderWin.webContents }, { requestId: 'nope', ok: true })
+    handlerRef.current?.({ sender: senderWin.webContents }, { requestId: payload.requestId, ok: true })
 
     await pending
     expect(ipcMainRemoveMock).toHaveBeenCalled()
@@ -101,17 +101,17 @@ describe('requestRendererGraphResync gate + round trip', () => {
     const winContents = (
       runtime as unknown as { getAvailableAuthoritativeWindow: () => { webContents: unknown } }
     ).getAvailableAuthoritativeWindow().webContents
-    handlerRef.current?.({ sender: winContents }, { requestId: payload.requestId })
+    handlerRef.current?.({ sender: winContents }, { requestId: payload.requestId, ok: true })
     await pending
   })
 
   it('resyncs a worktree at most once per session', async () => {
-    ipcMainOnMock.mockImplementation((_ch: string, h: (e: unknown, r: { requestId: string }) => void) => {
+    ipcMainOnMock.mockImplementation((_ch: string, h: ReplyHandler) => {
       // Reply synchronously on the next microtask with whatever id was sent.
       queueMicrotask(() => {
         const call = sendRef.mock.calls.at(-1) as [string, { requestId: string }] | undefined
         if (call) {
-          h({ sender: winContents }, { requestId: call[1].requestId })
+          h({ sender: winContents }, { requestId: call[1].requestId, ok: true })
         }
       })
     })

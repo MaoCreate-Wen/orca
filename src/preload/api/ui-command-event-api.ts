@@ -91,7 +91,7 @@ export type UiCommandEventApi = {
   onRequestGraphResync: (
     callback: (data: { requestId: string; worktreeId: string }) => void
   ) => () => void
-  replyGraphResync: (reply: { requestId: string }) => void
+  replyGraphResync: (reply: { requestId: string; ok?: boolean }) => void
   onRequestTabSetProfile: (
     callback: (data: {
       requestId: string

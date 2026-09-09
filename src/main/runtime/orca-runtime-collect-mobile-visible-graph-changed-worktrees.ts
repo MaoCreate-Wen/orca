@@ -155,14 +155,16 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
 
         const handler = (
           event: Electron.IpcMainEvent,
-          reply: { requestId: string }
+          reply: { requestId: string; ok?: boolean }
         ): void => {
           if (event.sender !== win.webContents || reply.requestId !== requestId) {
             return
           }
           clearTimeout(timer)
           ipcMain.removeListener('browser:requestGraphResyncReply', handler)
-          resolve(true)
+          // Why: the renderer replies even when the republish failed to reach main;
+          // treat only an explicit ok as success so a failed publish stays retryable.
+          resolve(reply.ok === true)
         }
         ipcMain.on('browser:requestGraphResyncReply', handler)
         try {

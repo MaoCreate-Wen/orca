@@ -27,7 +27,7 @@ import { registerBrowserRequestIpcBridge } from './browser-request-ipc-bridge'
 
 describe('browser graph-resync bridge', () => {
   beforeEach(() => {
-    mocks.republishMobileSessionWorktree.mockReset().mockResolvedValue(undefined)
+    mocks.republishMobileSessionWorktree.mockReset().mockResolvedValue(true)
     mocks.replyGraphResync.mockReset()
     mocks.resyncListener = null
     Object.defineProperty(window, 'api', {
@@ -53,9 +53,9 @@ describe('browser graph-resync bridge', () => {
   it('replies only after the republish settles, so main never reads a stale snapshot', async () => {
     // Hold the republish open: main must not be told the graph is ready until
     // syncRuntimeGraph has actually committed the worktree's snapshot.
-    let resolveRepublish = (): void => {}
+    let resolveRepublish: (ok: boolean) => void = () => {}
     mocks.republishMobileSessionWorktree.mockReturnValue(
-      new Promise<void>((resolve) => {
+      new Promise<boolean>((resolve) => {
         resolveRepublish = resolve
       })
     )
@@ -68,21 +68,21 @@ describe('browser graph-resync bridge', () => {
     await Promise.resolve()
     expect(mocks.replyGraphResync).not.toHaveBeenCalled()
 
-    resolveRepublish()
+    resolveRepublish(true)
 
     await vi.waitFor(() =>
-      expect(mocks.replyGraphResync).toHaveBeenCalledExactlyOnceWith({ requestId: 'resync-1' })
+      expect(mocks.replyGraphResync).toHaveBeenCalledExactlyOnceWith({ requestId: 'resync-1', ok: true })
     )
   })
 
-  it('still replies when the republish fails so the awaiting list never hangs', async () => {
+  it('replies ok:false when the republish fails so the list never hangs and the resync stays retryable', async () => {
     mocks.republishMobileSessionWorktree.mockRejectedValue(new Error('sync failed'))
     registerBrowserRequestIpcBridge([], () => false)
 
     mocks.resyncListener?.({ requestId: 'resync-2', worktreeId: 'wt-2' })
 
     await vi.waitFor(() =>
-      expect(mocks.replyGraphResync).toHaveBeenCalledExactlyOnceWith({ requestId: 'resync-2' })
+      expect(mocks.replyGraphResync).toHaveBeenCalledExactlyOnceWith({ requestId: 'resync-2', ok: false })
     )
   })
 })

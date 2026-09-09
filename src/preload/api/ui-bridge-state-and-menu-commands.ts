@@ -184,7 +184,7 @@ export const uiStateAndMenuCommandsApi = {
     ipcRenderer.on('browser:requestGraphResync', listener)
     return () => ipcRenderer.removeListener('browser:requestGraphResync', listener)
   },
-  replyGraphResync: (reply: { requestId: string }): void => {
+  replyGraphResync: (reply: { requestId: string; ok?: boolean }): void => {
     ipcRenderer.send('browser:requestGraphResyncReply', reply)
   }
 } satisfies Partial<PreloadApi['ui']>

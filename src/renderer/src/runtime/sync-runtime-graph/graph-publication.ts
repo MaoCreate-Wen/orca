@@ -223,9 +223,16 @@ export function setTrailingGraphSyncScheduler(scheduler: () => void): void {
 // snapshot-fingerprint delete happens synchronously right before syncRuntimeGraph
 // builds and partitions the publication (no await in between), so a concurrent
 // coalesced sync cannot re-mark the worktree unchanged before this one sends.
-export async function republishMobileSessionWorktree(worktreeId: string): Promise<void> {
+export async function republishMobileSessionWorktree(worktreeId: string): Promise<boolean> {
   graphState.publishedMobileSessionSnapshotByWorktree.delete(worktreeId)
   await syncRuntimeGraph()
+  // Why: syncRuntimeGraph swallows a failed syncWindowGraph (logs, returns), so a
+  // publication that never reached main looks the same as success from here. The
+  // fingerprint we just deleted is re-set only by commitMobileSessionPublication,
+  // which runs solely after syncWindowGraph resolves — so its presence is a proxy
+  // for "this worktree's snapshot actually reached main". Report that as success so
+  // the caller can keep retrying a failed publish instead of marking it done.
+  return graphState.publishedMobileSessionSnapshotByWorktree.has(worktreeId)
 }
 
 function partitionMobileSessionPublication(snapshots: RuntimeMobileSessionTabsSnapshot[]): {
