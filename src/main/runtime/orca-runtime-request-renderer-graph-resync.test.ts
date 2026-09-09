@@ -25,6 +25,7 @@ function makeRuntime(overrides: Record<string, unknown> = {}): {
   ) as InstanceType<typeof OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees>
   Object.assign(runtime, {
     forceResyncedMobileWorktrees: new Set<string>(),
+    resyncInFlightMobileWorktrees: new Set<string>(),
     acceptedRendererMobileSnapshotByWorktree: new Map<string, unknown>(),
     getAvailableAuthoritativeWindow: () => win,
     ...overrides
@@ -104,6 +105,33 @@ describe('requestRendererGraphResync gate + round trip', () => {
     await rrgr('wt-1')
     await rrgr('wt-1')
     expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a timed-out first resync retryable instead of marking it done', async () => {
+    vi.useFakeTimers()
+    // Never replies -> the 10s timeout fires.
+    ipcMainOnMock.mockImplementation(() => {})
+    const { runtime, send } = makeRuntime()
+    const rrgr = (
+      runtime as unknown as { requestRendererGraphResync: (w: string) => Promise<void> }
+    ).requestRendererGraphResync.bind(runtime)
+
+    const p1 = rrgr('wt-1')
+    expect(send).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await p1
+    // Not marked done, so a later list can retry (symmetric with the no-window path).
+    expect(
+      (runtime as unknown as { forceResyncedMobileWorktrees: Set<string> }).forceResyncedMobileWorktrees.has(
+        'wt-1'
+      )
+    ).toBe(false)
+
+    const p2 = rrgr('wt-1')
+    expect(send).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await p2
+    vi.useRealTimers()
   })
 
   it('no-ops without an authoritative window', async () => {

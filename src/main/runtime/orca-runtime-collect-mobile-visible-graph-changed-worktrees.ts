@@ -78,8 +78,10 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
     return this.getMobileSessionTabsForWorktree(worktree.id, clientNavigationId)
   }
 
-  // Force-resync fires at most once per worktree per session (see gate below).
+  // Worktrees whose forced resync has succeeded (reply received) — never resynced again.
   protected forceResyncedMobileWorktrees = new Set<string>()
+  // Worktrees with a resync round trip in flight — blocks a concurrent duplicate.
+  protected resyncInFlightMobileWorktrees = new Set<string>()
 
   // Why: the initial-list reconcile above only recovers client-hosted browser
   // pages (page registry) — it cannot see renderer-owned tabs the desktop opened
@@ -109,40 +111,53 @@ export class OrcaRuntimeWithCollectMobileVisibleGraphChangedWorktrees extends Or
       this.forceResyncedMobileWorktrees.add(worktreeId)
       return
     }
+    // Why: block a concurrent list/subscribe/poll for the same worktree from
+    // launching a second republish, but do NOT mark it done here — only a received
+    // reply marks it (below), so a timed-out or failed first attempt (e.g. the
+    // renderer bridge isn't registered yet) stays retryable on the next list,
+    // symmetric with the no-window path.
+    if (this.resyncInFlightMobileWorktrees.has(worktreeId)) {
+      return
+    }
     const win = this.getAvailableAuthoritativeWindow()
     if (!win || win.isDestroyed()) {
       return
     }
-    // Mark before the round trip so a concurrent list/subscribe/poll for the same
-    // worktree doesn't launch a second republish while this one is in flight.
-    this.forceResyncedMobileWorktrees.add(worktreeId)
+    this.resyncInFlightMobileWorktrees.add(worktreeId)
     const requestId = randomUUID()
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        ipcMain.removeListener('browser:requestGraphResyncReply', handler)
-        resolve()
-      }, 10_000)
+    try {
+      const replied = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          ipcMain.removeListener('browser:requestGraphResyncReply', handler)
+          resolve(false)
+        }, 10_000)
 
-      const handler = (
-        event: Electron.IpcMainEvent,
-        reply: { requestId: string }
-      ): void => {
-        if (event.sender !== win.webContents || reply.requestId !== requestId) {
-          return
+        const handler = (
+          event: Electron.IpcMainEvent,
+          reply: { requestId: string }
+        ): void => {
+          if (event.sender !== win.webContents || reply.requestId !== requestId) {
+            return
+          }
+          clearTimeout(timer)
+          ipcMain.removeListener('browser:requestGraphResyncReply', handler)
+          resolve(true)
         }
-        clearTimeout(timer)
-        ipcMain.removeListener('browser:requestGraphResyncReply', handler)
-        resolve()
+        ipcMain.on('browser:requestGraphResyncReply', handler)
+        try {
+          win.webContents.send('browser:requestGraphResync', { requestId, worktreeId })
+        } catch {
+          clearTimeout(timer)
+          ipcMain.removeListener('browser:requestGraphResyncReply', handler)
+          resolve(false)
+        }
+      })
+      if (replied) {
+        this.forceResyncedMobileWorktrees.add(worktreeId)
       }
-      ipcMain.on('browser:requestGraphResyncReply', handler)
-      try {
-        win.webContents.send('browser:requestGraphResync', { requestId, worktreeId })
-      } catch {
-        clearTimeout(timer)
-        ipcMain.removeListener('browser:requestGraphResyncReply', handler)
-        resolve()
-      }
-    })
+    } finally {
+      this.resyncInFlightMobileWorktrees.delete(worktreeId)
+    }
   }
 
   // Why: the initial list path only hydrates terminals; browser reconcile is
